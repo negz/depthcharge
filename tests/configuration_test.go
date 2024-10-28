@@ -25,12 +25,11 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/utils/pointer"
-
-	"github.com/crossplane/crossplane-runtime/pkg/resource"
-	pkgv1 "github.com/crossplane/crossplane/apis/pkg/v1"
+	"k8s.io/utils/ptr"
 
 	"github.com/crossplane/conformance/internal"
+	"github.com/crossplane/crossplane-runtime/pkg/resource"
+	pkgv1 "github.com/crossplane/crossplane/apis/pkg/v1"
 )
 
 func TestConfiguration(t *testing.T) {
@@ -45,17 +44,17 @@ func TestConfiguration(t *testing.T) {
 	// This configuration is defined in the testdata/configuration directory
 	// of this repository. It is built and pushed by CI/CD.
 	cfg := &pkgv1.Configuration{
-		ObjectMeta: metav1.ObjectMeta{Name: internal.SuiteName},
+		ObjectMeta: metav1.ObjectMeta{Name: internal.SuiteName + "-configuration"},
 		Spec: pkgv1.ConfigurationSpec{
 			PackageSpec: pkgv1.PackageSpec{
-				Package:                     "crossplane/conformance-testdata-configuration:latest",
-				IgnoreCrossplaneConstraints: pointer.BoolPtr(true),
+				Package:                     "index.docker.io/crossplane/conformance-testdata-configuration:latest",
+				IgnoreCrossplaneConstraints: ptr.To(true),
 			},
 		},
 	}
 
-	// The crossplane-conformance provider depends on negz/provider-nop.
-	prv := &pkgv1.Provider{ObjectMeta: metav1.ObjectMeta{Name: "negz-provider-nop"}}
+	// The crossplane-conformance provider depends on xpkg.upbound.io/crossplane-contrib/provider-nop.
+	prv := &pkgv1.Provider{ObjectMeta: metav1.ObjectMeta{Name: "crossplane-contrib-provider-nop"}}
 
 	if err := kube.Create(ctx, cfg); err != nil {
 		t.Fatalf("Create configuration %q: %v", cfg.GetName(), err)
@@ -86,7 +85,7 @@ func TestConfiguration(t *testing.T) {
 
 	t.Run("BecomesInstalledAndHealthy", func(t *testing.T) {
 		t.Log("Testing that the configuration's Healthy and Installed status conditions become 'True'.")
-		if err := wait.PollImmediate(10*time.Second, 90*time.Second, func() (done bool, err error) {
+		if err := wait.PollUntilContextTimeout(ctx, 10*time.Second, 90*time.Second, true, func(ctx context.Context) (done bool, err error) {
 			if err := kube.Get(ctx, types.NamespacedName{Name: cfg.GetName()}, cfg); err != nil {
 				return false, err
 			}
@@ -111,15 +110,13 @@ func TestConfiguration(t *testing.T) {
 	t.Run("RevisionBecomesHealthyAndDeploysObjects", func(t *testing.T) {
 		t.Log("Testing that the configuration's revision's Healthy status condition becomes 'True', and that it deploys its objects.")
 
-		if err := wait.PollImmediate(10*time.Second, 90*time.Second, func() (done bool, err error) {
+		if err := wait.PollUntilContextTimeout(ctx, 10*time.Second, 90*time.Second, true, func(ctx context.Context) (done bool, err error) {
 			l := &pkgv1.ConfigurationRevisionList{}
 			if err := kube.List(ctx, l); err != nil {
 				return false, err
 			}
 
 			for _, rev := range l.Items {
-				rev := rev // To avoid using the range var in a fn literal.
-
 				for _, o := range rev.GetOwnerReferences() {
 					// This is not the revision we're looking for.
 					if o.Name != cfg.GetName() {
@@ -168,7 +165,7 @@ func TestConfiguration(t *testing.T) {
 
 	t.Run("DependencyBecomesInstalledAndHealthy", func(t *testing.T) {
 		t.Log("Testing that the configuration's dependencies' Healthy and Installed status conditions become 'True'.")
-		if err := wait.PollImmediate(10*time.Second, 90*time.Second, func() (done bool, err error) {
+		if err := wait.PollUntilContextTimeout(ctx, 10*time.Second, 90*time.Second, true, func(ctx context.Context) (done bool, err error) {
 			if err := kube.Get(ctx, types.NamespacedName{Name: prv.GetName()}, prv); err != nil {
 				// Most likely the provider hasn't been created yet.
 				if kerrors.IsNotFound(err) {
